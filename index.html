@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Hiragana">
+<meta name="apple-mobile-web-app-title" content="Nihongo">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f7f3ec">
-<title>Hiragana Flashcards</title>
+<title>Nihongo Practice</title>
 
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
@@ -16,21 +16,35 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<h1>ひらがな — Hiragana</h1>
+<h1>日本語 — Nihongo</h1>
 <div class="streak-badge" id="streakBadge">🔥 0 day streak</div>
 
-<!-- SELECTION -->
-<div class="screen active" id="screenSel">
-  <p class="sel-intro">Choose which characters to practise</p>
+<!-- LIBRARY (home) -->
+<div class="screen active" id="screenLibrary">
+  <p class="sel-intro">Choose what to practise</p>
+  <div class="library-wrap" id="libraryWrap"></div>
+</div>
+
+<!-- SELECTION (per-set) -->
+<div class="screen" id="screenSel">
+  <button id="libraryBackBtn" class="set-back-btn">← Library</button>
+  <h2 class="set-screen-title" id="setScreenTitle">—</h2>
+  <p class="sel-intro">Choose which items to practise</p>
   <div class="mastery-legend">
     <span><span class="legend-dot"></span> new</span>
     <span><span class="legend-dot level-1"></span> shaky</span>
     <span><span class="legend-dot level-2"></span> okay</span>
     <span><span class="legend-dot level-3"></span> solid</span>
   </div>
+
+  <div class="level-filter-row hidden" id="vocabFilterRow">
+    <button class="level-filter-btn" id="filterN5">+ All N5</button>
+    <button class="level-filter-btn" id="filterN4">+ All N4</button>
+  </div>
+
   <div class="group-wrap" id="groupWrap"></div>
 
-  <div class="mode-picker">
+  <div class="mode-picker" id="modePicker">
     <div class="mode-label">Practice mode</div>
     <div class="mode-options">
       <button class="mode-btn active" id="modeFlashcard" data-mode="flashcard">Flashcards</button>
@@ -45,7 +59,7 @@
   <p class="sel-count" id="selCount">0 selected</p>
 </div>
 
-<!-- FLASHCARD PRACTICE -->
+<!-- FLASHCARD PRACTICE (kana/kanji draw mode OR vocab type mode) -->
 <div class="screen" id="screenPractice">
   <div class="progress-wrap">
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -53,34 +67,65 @@
   </div>
 
   <div class="card">
-    <div class="romaji" id="romaji">—</div>
+    <div class="romaji" id="romaji"></div>
 
-    <div class="draw-section" id="drawSection">
-      <div class="draw-label" id="drawLabel">draw it here</div>
-      <div class="draw-canvas-wrap">
-        <canvas id="drawCanvas" width="220" height="220"></canvas>
-        <div id="overlayChar"></div>
+    <!-- kana/kanji draw + reveal area -->
+    <div id="drawModeArea">
+      <div class="draw-section" id="drawSection">
+        <div class="draw-label">draw it here</div>
+        <div class="draw-canvas-wrap">
+          <canvas id="drawCanvas" width="220" height="220"></canvas>
+          <div id="overlayChar"></div>
+        </div>
+        <div class="draw-actions">
+          <button class="draw-clear-btn" id="clearDrawBtn">Clear</button>
+          <button class="draw-clear-btn" id="compareBtn" disabled>Compare</button>
+        </div>
       </div>
-      <div class="draw-actions">
-        <button class="draw-clear-btn" id="clearDrawBtn">Clear</button>
-        <button class="draw-clear-btn" id="compareBtn" disabled>Compare</button>
+
+      <div class="answer-area">
+        <div class="hiragana" id="hiragana"></div>
+        <div class="stroke-wrap" id="strokeWrap">
+          <div id="strokeContainer"></div>
+          <div class="stroke-label">stroke order</div>
+        </div>
+      </div>
+
+      <div class="reading-info" id="readingInfo">
+        <div class="reading-meaning" id="readingMeaning"></div>
+        <div class="reading-row"><span class="reading-label">On:</span> <span id="readingOn"></span></div>
+        <div class="reading-row"><span class="reading-label">Kun:</span> <span id="readingKun"></span></div>
       </div>
     </div>
 
-    <div class="answer-area">
-      <div class="hiragana" id="hiragana"></div>
-      <div class="stroke-wrap" id="strokeWrap">
-        <div id="strokeContainer">
-          <!-- SVG injected here -->
-        </div>
-        <div class="stroke-label">stroke order</div>
+    <!-- vocab type-the-reading area -->
+    <div id="typeModeArea" class="hidden">
+      <div class="vocab-jp-display" id="vocabJp">—</div>
+      <input
+        type="text"
+        id="readingInput"
+        class="type-input"
+        autocomplete="off"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck="false"
+        placeholder="type the romaji reading…"
+      />
+      <div class="type-feedback" id="readingFeedback"></div>
+      <div class="type-word-info" id="readingAnswer">
+        <div class="type-word-kanji" id="answerKana"></div>
+        <div class="type-word-meaning" id="answerMeaning"></div>
       </div>
     </div>
   </div>
 
-  <div class="btn-row">
+  <div class="btn-row" id="drawBtnRow">
     <button id="revealBtn">Reveal</button>
     <button id="nextBtn">Next →</button>
+  </div>
+  <div class="btn-row hidden" id="checkBtnRow">
+    <button id="checkBtn">Check</button>
+    <button id="vocabNextBtn" disabled>Next →</button>
   </div>
   <div class="grade-row" id="gradeRow">
     <button class="grade-btn" id="gradeGood">✓ Got it</button>
@@ -94,7 +139,7 @@
   <button id="backBtn">← Change selection</button>
 </div>
 
-<!-- TYPING PRACTICE -->
+<!-- QUIZ / TYPING PRACTICE (kana type, kanji MC, vocab MC) -->
 <div class="screen" id="screenTyping">
   <div class="progress-wrap">
     <div class="progress-bar"><div class="progress-fill" id="typeProgressFill"></div></div>
@@ -102,19 +147,27 @@
   </div>
 
   <div class="card">
-    <div class="type-hiragana" id="typeHiragana">—</div>
-    <div class="type-word-hint" id="typeWordHint"></div>
+    <!-- kana: typed romaji for a word/combo -->
+    <div id="kanaTypeArea" class="hidden">
+      <div class="type-hiragana" id="typeHiragana">—</div>
+      <div class="type-word-hint" id="kanaWordHint"></div>
+      <input
+        type="text"
+        id="typeInput"
+        class="type-input"
+        autocomplete="off"
+        autocapitalize="off"
+        autocorrect="off"
+        spellcheck="false"
+        placeholder="type the romaji…"
+      />
+    </div>
 
-    <input
-      type="text"
-      id="typeInput"
-      class="type-input"
-      autocomplete="off"
-      autocapitalize="off"
-      autocorrect="off"
-      spellcheck="false"
-      placeholder="type the romaji…"
-    />
+    <!-- kanji / vocab: multiple choice -->
+    <div id="quizOptionsArea" class="hidden">
+      <div class="quiz-prompt" id="typeWordHint">—</div>
+      <div class="quiz-options" id="quizOptions"></div>
+    </div>
 
     <div class="type-feedback" id="typeFeedback"></div>
     <div class="type-word-info" id="typeWordInfo">
@@ -123,7 +176,7 @@
     </div>
   </div>
 
-  <div class="btn-row">
+  <div class="btn-row" id="typeSubmitRow">
     <button id="typeSubmitBtn">Check</button>
     <button id="typeNextBtn" disabled>Next →</button>
   </div>
@@ -136,20 +189,16 @@
   <button id="typeBackBtn">← Change selection</button>
 </div>
 
-<!--
-  Load order matters: data/storage/strokes/drawpad are read by selection.js,
-  flashcards.js, and typing.js, so they must load first.
--->
 <script src="js/data.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/strokes.js"></script>
 <script src="js/drawpad.js"></script>
+<script src="js/shell.js"></script>
 <script src="js/selection.js"></script>
 <script src="js/flashcards.js"></script>
 <script src="js/typing.js"></script>
 
 <script>
-  // Register service worker for offline support (PWA)
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('service-worker.js').catch(() => {});

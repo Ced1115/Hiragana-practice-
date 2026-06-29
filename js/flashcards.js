@@ -1,14 +1,16 @@
 // ══════════════════════════════════════════════════════════════════
-//  FLASHCARD MODE — mastery queue: repeat misses, clear round on 100%
+//  FLASHCARD MODE — two UX branches sharing one mastery queue engine:
+//    - kana/kanji: draw-pad + reveal + stroke order (+ readings for kanji)
+//    - vocab: type-the-romaji + check (no drawing, no stroke order)
 // ══════════════════════════════════════════════════════════════════
-// "queue" holds the cards still needing a correct answer this round.
-// Missed cards get re-inserted (shuffled back in); correct ones are removed.
-// A round is complete when the queue is empty -> then a new round starts.
-let allCards = [];       // full selected set, fixed for the session
-let queue = [];          // cards remaining to master this round
-let roundTotal = 0;      // size of queue at the start of the round (for progress)
+let allCards = [];
+let queue = [];
+let roundTotal = 0;
 let roundNumber = 1;
-let seen = 0, right = 0, wrong = 0, revealed = false, currentChar = '';
+let seen = 0, right = 0, wrong = 0, revealed = false;
+let currentItem = null;
+let currentChar = ''; // mirrors currentItem.display; drawpad.js reads this for the Compare overlay
+let flashSetKey = null;
 
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -23,16 +25,26 @@ function startNewRound() {
   roundTotal = queue.length;
 }
 
-function startFlashcardSession() {
-  allCards = GROUPS.flatMap(g => g.kana).filter(k => selected.has(k.r));
+function startFlashcardSession(setKey) {
+  flashSetKey = setKey;
+  allCards = SETS[setKey].groups.flatMap(g => g.items).filter(it => selected.has(it.id));
   roundNumber = 1;
   startNewRound();
   seen = 0; right = 0; wrong = 0;
   ['seenCount','rightCount','wrongCount'].forEach(id => document.getElementById(id).textContent = '0');
-  loadCard();
+
+  const isDrawMode = setKey === 'hiragana' || setKey === 'katakana' || setKey === 'kanji';
+  document.getElementById('drawModeArea').classList.toggle('hidden', !isDrawMode);
+  document.getElementById('typeModeArea').classList.toggle('hidden', isDrawMode);
+  document.getElementById('drawBtnRow').classList.toggle('hidden', !isDrawMode);
+  document.getElementById('gradeRow').classList.toggle('hidden', !isDrawMode);
+  document.getElementById('checkBtnRow').classList.toggle('hidden', isDrawMode);
+
+  if (isDrawMode) loadDrawCard(); else loadTypeCard();
 }
 
-function loadCard() {
+// ── Draw-mode branch (hiragana / katakana / kanji) ──
+function loadDrawCard() {
   revealed = false;
   document.getElementById('gradeRow').classList.remove('visible');
   document.getElementById('strokeWrap').classList.remove('visible');
@@ -42,9 +54,11 @@ function loadCard() {
   document.getElementById('overlayChar').classList.remove('visible');
   document.getElementById('compareBtn').disabled = true;
   document.getElementById('compareBtn').textContent = 'Compare';
+  document.getElementById('readingInfo').classList.remove('visible');
 
-  const card = queue[0];
-  currentChar = card.h;
+  const item = queue[0];
+  currentItem = item;
+  currentChar = item.display;
   const hEl = document.getElementById('hiragana');
   hEl.style.transition = 'none';
   hEl.style.opacity = '0';
@@ -52,14 +66,14 @@ function loadCard() {
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      hEl.textContent = card.h;
-      document.getElementById('romaji').textContent = card.r;
+      hEl.textContent = item.display;
+      document.getElementById('romaji').textContent = flashSetKey === 'kanji' ? '' : item.romaji;
       hEl.style.transition = '';
       updateProgress();
     });
   });
 
-  fetchStrokeSvg(card.h).catch(() => {});
+  fetchStrokeSvg(item.display).catch(() => {});
 }
 
 async function reveal() {
@@ -73,38 +87,108 @@ async function reveal() {
   seen++;
   document.getElementById('seenCount').textContent = seen;
 
+  if (flashSetKey === 'kanji') {
+    const item = queue[0];
+    document.getElementById('readingMeaning').textContent = item.meaning;
+    document.getElementById('readingOn').textContent = item.onyomi.length ? item.onyomi.join('、') : '—';
+    document.getElementById('readingKun').textContent = item.kunyomi.length ? item.kunyomi.join('、') : '—';
+    document.getElementById('readingInfo').classList.add('visible');
+  }
+
   const container = document.getElementById('strokeContainer');
   container.innerHTML = '<div class="stroke-msg">Loading…</div>';
   document.getElementById('strokeWrap').classList.add('visible');
 
   try {
-    const rawSvg = await fetchStrokeSvg(currentChar);
+    const rawSvg = await fetchStrokeSvg(currentItem.display);
     const svgEl = buildColoredSvg(rawSvg);
-    if (svgEl) {
-      container.innerHTML = '';
-      container.appendChild(svgEl);
-    } else {
-      container.innerHTML = '<div class="stroke-msg">—</div>';
-    }
+    if (svgEl) { container.innerHTML = ''; container.appendChild(svgEl); }
+    else container.innerHTML = '<div class="stroke-msg">—</div>';
   } catch {
     container.innerHTML = '<div class="stroke-msg">unavailable</div>';
   }
 }
 
-function grade(correct) {
-  const card = queue.shift(); // remove current card from front of queue
-  recordResult(card.r, correct);
+function gradeDraw(correct) {
+  const item = queue.shift();
+  recordResult(`${flashSetKey}:${item.id}`, correct);
+  finishGrading(correct, item);
+  loadDrawCard();
+}
 
+function advanceDraw() {
+  const item = queue.shift();
+  queue.push(item);
+  loadDrawCard();
+}
+
+// ── Type-mode branch (vocab) ──
+function loadTypeCard() {
+  const item = queue[0];
+  currentItem = item;
+  currentChar = item.display;
+
+  document.getElementById('vocabJp').textContent = item.display;
+  const input = document.getElementById('readingInput');
+  input.value = '';
+  input.disabled = false;
+  input.classList.remove('correct','incorrect');
+  document.getElementById('readingFeedback').textContent = '';
+  document.getElementById('readingFeedback').className = 'type-feedback';
+  document.getElementById('readingAnswer').classList.remove('visible');
+  document.getElementById('checkBtn').disabled = false;
+  document.getElementById('vocabNextBtn').disabled = true;
+  updateProgress();
+  setTimeout(() => input.focus(), 50);
+}
+
+function checkReading() {
+  const input = document.getElementById('readingInput');
+  const guess = input.value.trim().toLowerCase();
+  if (guess === '') return;
+
+  seen++;
+  document.getElementById('seenCount').textContent = seen;
+
+  const correct = guess === currentItem.romaji;
+  const feedback = document.getElementById('readingFeedback');
+  input.disabled = true;
+  document.getElementById('checkBtn').disabled = true;
+  document.getElementById('vocabNextBtn').disabled = false;
+
+  if (correct) {
+    input.classList.add('correct');
+    feedback.textContent = '✓ Correct!';
+    feedback.classList.add('correct');
+  } else {
+    input.classList.add('incorrect');
+    feedback.textContent = `✗ It was "${currentItem.romaji}"`;
+    feedback.classList.add('incorrect');
+  }
+
+  document.getElementById('answerKana').textContent = currentItem.reading || '';
+  document.getElementById('answerMeaning').textContent = currentItem.meaning || '';
+  document.getElementById('readingAnswer').classList.add('visible');
+
+  const item = queue.shift();
+  recordResult(`${flashSetKey}:${item.id}`, correct);
+  finishGrading(correct, item);
+}
+
+function advanceType() {
+  loadTypeCard();
+}
+
+// ── Shared bookkeeping ──
+function finishGrading(correct, item) {
   if (correct) {
     right++;
     document.getElementById('rightCount').textContent = right;
-    // mastered for this round — don't re-add
   } else {
     wrong++;
     document.getElementById('wrongCount').textContent = wrong;
-    // re-insert at a random position later in the queue (not immediately next)
     const insertPos = queue.length === 0 ? 0 : Math.floor(Math.random() * queue.length) + 1;
-    queue.splice(insertPos, 0, card);
+    queue.splice(insertPos, 0, item);
   }
 
   if (queue.length === 0) {
@@ -112,7 +196,6 @@ function grade(correct) {
     flashRoundComplete();
     startNewRound();
   }
-  loadCard();
 }
 
 function flashRoundComplete() {
@@ -120,13 +203,6 @@ function flashRoundComplete() {
   label.textContent = '✓ All correct!';
   label.style.color = 'var(--green)';
   setTimeout(() => { label.style.color = ''; }, 1200);
-}
-
-function advance() {
-  // "Next" without grading = treat as skip, just move card to back of queue unchanged
-  const card = queue.shift();
-  queue.push(card);
-  loadCard();
 }
 
 function updateProgress() {
@@ -137,15 +213,27 @@ function updateProgress() {
   document.getElementById('progressLabel').textContent = `${masteredThisRound} / ${roundTotal} · round ${roundNumber}`;
 }
 
+// ── Event wiring ──
 document.getElementById('revealBtn').addEventListener('click', reveal);
-document.getElementById('nextBtn').addEventListener('click', () => { if (!revealed) reveal(); else advance(); });
-document.getElementById('gradeGood').addEventListener('click', () => grade(true));
-document.getElementById('gradeBad').addEventListener('click', () => grade(false));
+document.getElementById('nextBtn').addEventListener('click', () => { if (!revealed) reveal(); else advanceDraw(); });
+document.getElementById('gradeGood').addEventListener('click', () => gradeDraw(true));
+document.getElementById('gradeBad').addEventListener('click', () => gradeDraw(false));
+
+document.getElementById('checkBtn').addEventListener('click', checkReading);
+document.getElementById('vocabNextBtn').addEventListener('click', advanceType);
+document.getElementById('readingInput').addEventListener('keydown', e => {
+  if (e.code === 'Enter') {
+    e.preventDefault();
+    if (!document.getElementById('checkBtn').disabled) checkReading();
+    else advanceType();
+  }
+});
 
 document.addEventListener('keydown', e => {
   if (!document.getElementById('screenPractice').classList.contains('active')) return;
+  if (flashSetKey === 'vocab') return; // vocab uses the text input's own Enter handling
   if (e.code === 'Space') { e.preventDefault(); reveal(); }
-  if (e.code === 'ArrowRight' || e.code === 'Enter') { if (!revealed) reveal(); else advance(); }
-  if (e.code === 'ArrowUp') grade(true);
-  if (e.code === 'ArrowDown') grade(false);
+  if (e.code === 'ArrowRight' || e.code === 'Enter') { if (!revealed) reveal(); else advanceDraw(); }
+  if (e.code === 'ArrowUp') gradeDraw(true);
+  if (e.code === 'ArrowDown') gradeDraw(false);
 });

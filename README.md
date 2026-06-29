@@ -1,44 +1,76 @@
-# Hiragana Flashcards
+# Nihongo — Japanese Practice (merged app)
 
-A simple offline-capable PWA for practicing hiragana — flashcards with stroke order and handwriting practice, plus a typing mode for short words and combos.
+One PWA combining hiragana, katakana, kanji, and JLPT vocabulary practice — previously four separate apps, now sharing one progress system, one streak, and one home screen.
 
-**Live app:** https://ced1115.github.io/Hiragana-practice-/
+## Status
+
+**Pass 1 of 2.** This merge focuses on getting one solid shell with working migration from the four standalone apps. Phrase/sentence practice (translating short sentences using kana + kanji + vocab together) is the planned pass 2, built on top of this foundation.
 
 ## Features
 
-- **Flashcard mode** — see the romaji, draw the character, reveal to check yourself against the real shape, stroke order diagram, and an overlay comparison.
-- **Typing mode** — see a hiragana word or combo, type the romaji reading. Pulls from a small curated word list (with meanings) when possible, otherwise falls back to random character combos.
-- **Mastery queue** — characters you miss get reshuffled back into the round; a round only resets once everything's been answered correctly at least once.
-- **Progress tracking** — per-character accuracy and a daily streak, saved locally in the browser (`localStorage`), so progress persists across sessions on the same device.
-- **Installable** — has a manifest and service worker, so it can be added to your phone's home screen and works offline after the first load (stroke order diagrams are cached as you see them).
+- **Library home screen** — pick a set (Hiragana / Katakana / Kanji / Vocab), each card showing live progress (X / Y "solid").
+- **Per-set selection screens** — same grouping as the standalone apps (kana rows, kanji grades, vocab themes with N5/N4 quick filters).
+- **Two practice modes per set:**
+  - *Flashcards* — draw-pad + stroke order + reveal for hiragana/katakana/kanji; type-the-romaji + reveal for vocab.
+  - *Typing / Quiz* — typed romaji for kana word/combos; multiple-choice meaning-matching for kanji; bidirectional multiple-choice for vocab.
+- **One mastery queue** — same "repeat misses, clear round on 100%" mechanic across all four sets.
+- **One streak, one stats schema** — every practiced item is stored as `"set:id"` (e.g. `hiragana:ka`, `kanji:水`, `vocab:今日`), so progress is unified instead of fragmented across four separate `localStorage` keys.
+- **Automatic migration** — on first load, pulls progress from the four standalone apps' old `localStorage` keys (if present on the same device/browser) into the unified schema, then sets a flag so it never re-runs or overwrites newer progress. Picks whichever old app had the most recent streak as the merged starting point.
+- **Installable** — manifest + service worker, works offline after first load (stroke order diagrams cached as you view them).
 
 ## Project structure
 
 ```
-index.html          entry point
-manifest.json        PWA metadata (name, icons, theme)
-service-worker.js    offline caching
+index.html            entry point — all 4 screens (library, selection, flashcards, quiz)
+manifest.json          PWA metadata
+service-worker.js      offline caching
 css/
-  style.css          all styling
+  style.css            all styling for every screen/set
 js/
-  data.js            hiragana groups + word list
-  storage.js          localStorage stats/streak logic
-  strokes.js           fetches & renders stroke order (KanjiVG)
-  drawpad.js            handwriting canvas
-  selection.js          character selection screen + mode picker
-  flashcards.js         flashcard mode logic
-  typing.js              typing mode logic
+  data.js              unified schema: all 4 sets' data, normalized to one item shape
+  storage.js            stats/streak logic + one-time migration from standalone apps
+  strokes.js             KanjiVG stroke order fetching/rendering (kana + kanji)
+  drawpad.js              handwriting canvas + compare overlay
+  shell.js                library screen, set navigation
+  selection.js            selection screen builder (grid for kana/kanji, list for vocab)
+  flashcards.js           flashcard mode (draw branch + type branch)
+  typing.js               quiz/typing mode (3 branches: kana, kanji, vocab)
 icons/
   icon-192.png, icon-512.png
 ```
 
+## The unified data shape
+
+Every practicable item — a hiragana, a katakana, a kanji, a vocab word — is normalized to:
+
+```js
+{ id, set, display, reading, romaji, meaning, group, level, type }
+```
+
+`id` is unique *within* its set (was: romaji for kana, the character for kanji, the word for vocab). Stats are keyed by `"set:id"` so nothing collides across sets. This is what makes a future phrase mode possible — a sentence can reference items across all four sets through one consistent lookup (`ITEM_LOOKUP["kanji:水"]`, `ITEM_LOOKUP["vocab:飲む"]`, etc).
+
+## Migration details
+
+On first load, `migrateOldData()` checks for these old keys:
+
+| Set | Old stats key | Old streak key |
+|---|---|---|
+| Hiragana | `hiragana-stats-v1` | `hiragana-streak-v1` |
+| Katakana | `katakana-stats-v1` | `katakana-streak-v1` |
+| Kanji | `kanji-stats-v1` | `kanji-streak-v1` |
+| Vocab | `vocab-stats-v1` | `vocab-streak-v1` |
+
+If found, each old record is re-keyed with its set prefix and merged into `nihongo-stats-v1`. The streak with the most recent `lastDate` wins as the merged streak's starting point. A flag (`nihongo-migrated-v1`) ensures this runs exactly once — it will never re-run and never overwrite progress made after the merge, even if the old keys are still sitting in `localStorage`.
+
+**Important:** migration only works if this app is opened in the *same browser, same device* as the standalone apps were used in — `localStorage` doesn't sync across browsers or devices on its own.
+
 ## Stroke order data
 
-Stroke order diagrams are fetched live from [KanjiVG](https://github.com/KanjiVG/kanjivg) (via jsDelivr), an open-source project providing stroke data for kana and kanji. Requires an internet connection the first time each character is viewed; cached afterward.
+Fetched live from [KanjiVG](https://github.com/KanjiVG/kanjivg) via jsDelivr. Needs an internet connection the first time each character is viewed; cached afterward (in both `localStorage`-backed in-memory cache and the service worker's cache).
 
 ## Running locally
 
-No build step — just open `index.html` in a browser, or serve the folder with any static file server, e.g.:
+No build step:
 
 ```
 python3 -m http.server 8000
@@ -46,5 +78,5 @@ python3 -m http.server 8000
 
 ## Notes
 
-- Progress and streaks are stored per-browser via `localStorage`. Clearing site data/cache will reset them.
 - This is a personal learning tool, not a polished product — built incrementally with Claude.
+- The four standalone apps (hiragana-app, katakana-app, kanji-app, vocab-app) still work independently if you'd rather keep using them separately; this merged app is additive, not a replacement requirement.
